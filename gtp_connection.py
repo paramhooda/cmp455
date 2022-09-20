@@ -282,11 +282,38 @@ class GtpConnection:
     """
     def gogui_rules_final_result_cmd(self, args):
         """ Implement this function for Assignment 1 """
-        self.respond("unknown")
+        #If all moves are illegal, the game is over
+        #If game is not over, return unknown. Otherwise, it should show who wins (white/black)
+        if self.board.current_player==BLACK:
+            color :GO_COLOR = color_to_int('b')
+        else:
+            color :GO_COLOR = color_to_int('w')
+        moves = GoBoardUtil.generate_legal_moves(self.board, color)
+        if len(moves)>0:
+            self.respond("unknown")
+        else:
+            if self.board.current_player==BLACK:
+                self.respond("white")
+            else:
+                self.respond("black")
 
     def gogui_rules_legal_moves_cmd(self, args):
         """ Implement this function for Assignment 1 """
-        self.respond()
+        #Code taken from gtp_connection of go0and1. Unedited -Ivan
+        if self.board.current_player==BLACK:
+            color : GO_COLOR = color_to_int('w')
+        else:
+            color : GO_COLOR = color_to_int('b')
+
+
+        moves: List[GO_POINT] = GoBoardUtil.generate_legal_moves(self.board, color) #This should in theory work for the NoGo rules because of the adjustments I made to board.py - Jake
+        gtp_moves: List[str] = []
+        for move in moves:
+            coords: Tuple[int, int] = point_to_coord(move, self.board.size)
+            gtp_moves.append(format_point(coords))
+        sorted_moves = " ".join(sorted(gtp_moves))
+        self.respond(sorted_moves)
+        #self.respond() original code, commented out
         return
 
     def play_cmd(self, args: List[str]) -> None:
@@ -297,15 +324,34 @@ class GtpConnection:
             board_color = args[0].lower()
             board_move = args[1]
             color = color_to_int(board_color)
+            
+            #Shouldn't the argument not be allowed to be pass? So I just have it report it as illegal move instead - Jake
             if args[1].lower() == "pass":
+                """
+                #Original code
                 self.board.play_move(PASS, color)
                 self.board.current_player = opponent(color)
                 self.respond()
                 return
+                """                
+                self.respond('illegal move: "{} {}" wrong coordinate'.format(board_color,board_move))
+                return            
+            
             coord = move_to_coord(args[1], self.board.size)
             move = coord_to_point(coord[0], coord[1], self.board.size)
-            if not self.board.play_move(move, color):
-                self.respond("Illegal Move: {}".format(board_move))
+            if color != self.board.current_player:
+                self.respond('illegal move: {} wrong color'.format(board_color, board_move))
+                return
+            move = self.board.play_move(move, color)
+            
+            if move=="capture":
+                self.respond('illegal move: "{} {}" capture'.format(board_color, board_move))
+                return
+            elif move=="suicide":
+                self.respond('illegal move: "{} {}" suicide'.format(board_color, board_move))
+                return
+            elif move==False:
+                self.respond('illegal move: "{} {}" occupied'.format(board_color, board_move))
                 return
             else:
                 self.debug_msg(
@@ -326,7 +372,7 @@ class GtpConnection:
             self.board.play_move(move, color)
             self.respond(move_as_string)
         else:
-            self.respond("Illegal move: {}".format(move_as_string))
+            self.respond("resign")
 
     """
     ==========================================================================

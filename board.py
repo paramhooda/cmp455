@@ -1,5 +1,6 @@
 """
 board.py
+board.py
 Cmput 455 sample code
 Written by Cmput 455 TA and Martin Mueller
 
@@ -27,7 +28,6 @@ from board_base import (
     BORDER,
     MAXSIZE,
     NO_POINT,
-    PASS,
     GO_COLOR,
     GO_POINT,
 )
@@ -40,8 +40,10 @@ The class also contains basic utility functions for writing a Go player.
 For many more utility functions, see the GoBoardUtil class in board_util.py.
 
 The board is stored as a one-dimensional array of GO_POINT in self.board.
-See coord_to_point for explanations of the array encoding.
+See GoBoardUtil.coord_to_point for explanations of the array encoding.
 """
+
+
 class GoBoard(object):
     def __init__(self, size: int):
         """
@@ -57,68 +59,56 @@ class GoBoard(object):
         self.size: int = size
         self.NS: int = size + 1
         self.WE: int = 1
-        self.ko_recapture: GO_POINT = NO_POINT
-        self.last_move: GO_POINT = NO_POINT
-        self.last2_move: GO_POINT = NO_POINT
         self.current_player: GO_COLOR = BLACK
         self.maxpoint: int = board_array_size(size)
         self.board: np.ndarray[GO_POINT] = np.full(self.maxpoint, BORDER, dtype=GO_POINT)
         self._initialize_empty_points(self.board)
+        self.transposition_table = {}
+        self.lastMove = None
+        self.lastMoveColour = None
+    
+    def inTT(self, board):
+        if str(board) in self.transposition_table.keys():
+            return self.transposition_table[board]
+        return False
+    
+    def addToTT(self, board, score):
+        board_code = str(board)
+        self.transposition_table[board_code] = score
+    def getLastMove(self):
+        return self.lastMove, self.lastMoveColour
 
+        
+        
     def copy(self) -> 'GoBoard':
         b = GoBoard(self.size)
         assert b.NS == self.NS
         assert b.WE == self.WE
-        b.ko_recapture = self.ko_recapture
-        b.last_move = self.last_move
-        b.last2_move = self.last2_move
         b.current_player = self.current_player
         assert b.maxpoint == self.maxpoint
         b.board = np.copy(self.board)
         return b
 
+        
     def get_color(self, point: GO_POINT) -> GO_COLOR:
         return self.board[point]
 
     def pt(self, row: int, col: int) -> GO_POINT:
         return coord_to_point(row, col, self.size)
 
-    def _is_legal_check_simple_cases(self, point: GO_POINT, color: GO_COLOR) -> bool:
-        """
-        Check the simple cases of illegal moves.
-        Some "really bad" arguments will just trigger an assertion.
-        If this function returns False: move is definitely illegal
-        If this function returns True: still need to check more
-        complicated cases such as suicide.
-        """
-        assert is_black_white(color)
-        if point == PASS:
-            return False #Because PASS is illegal in NoGo
-        # Could just return False for out-of-bounds, 
-        # but it is better to know if this is called with an illegal point
-        assert self.pt(1, 1) <= point <= self.pt(self.size, self.size)
-        assert is_black_white_empty(self.board[point])
-        if self.board[point] != EMPTY:
-            return False
-        if point == self.ko_recapture:
-            return False
-        return True
-
+        
+        
     def is_legal(self, point: GO_POINT, color: GO_COLOR) -> bool:
         """
         Check whether it is legal for color to play on point
         This method tries to play the move on a temporary copy of the board.
         This prevents the board from being modified by the move
         """
-        if point == PASS:
-            return False #Because PASS is illegal in NoGo
         board_copy: GoBoard = self.copy()
         can_play_move = board_copy.play_move(point, color)
         return can_play_move
 
-    def end_of_game(self) -> bool:
-        return self.last_move == PASS \
-           and self.last2_move == PASS
+        
            
     def get_empty_points(self) -> np.ndarray:
         """
@@ -131,7 +121,8 @@ class GoBoard(object):
         assert row >= 1
         assert row <= self.size
         return row * self.NS + 1
-
+        
+        
     def _initialize_empty_points(self, board_array: np.ndarray) -> None:
         """
         Fills points on the board with EMPTY
@@ -159,7 +150,8 @@ class GoBoard(object):
             elif self.board[d] == opp_color:
                 false_count += 1
         return false_count <= 1 - at_edge  # 0 at edge, 1 in center
-
+        
+        
     def _is_surrounded(self, point: GO_POINT, color: GO_COLOR) -> bool:
         """
         check whether empty point is surrounded by stones of color
@@ -181,7 +173,8 @@ class GoBoard(object):
             if empty_nbs:
                 return True
         return False
-
+        
+        
     def _block_of(self, stone: GO_POINT) -> np.ndarray:
         """
         Find the block of given stone
@@ -209,62 +202,53 @@ class GoBoard(object):
                     marker[nb] = True
                     pointstack.append(nb)
         return marker
-
+        
+        
     def _detect_and_process_capture(self, nb_point: GO_POINT) -> GO_POINT:
         """
         Check whether opponent block on nb_point is captured.
         If yes, remove the stones.
         Returns the stone if only a single stone was captured,
         and returns NO_POINT otherwise.
-        This result is used in play_move to check for possible ko
         """
-        single_capture: GO_POINT = NO_POINT
         opp_block = self._block_of(nb_point)
-        if not self._has_liberty(opp_block):
-            captures = list(where1d(opp_block))
-            self.board[captures] = EMPTY
-            if len(captures) == 1:
-                single_capture = nb_point
-        return single_capture
+        return not self._has_liberty(opp_block)
+
 
     def play_move(self, point: GO_POINT, color: GO_COLOR) -> bool:
         """
         Play a move of color on point
         Returns whether move was legal
         """
-        if not self._is_legal_check_simple_cases(point, color):
+        
+        assert is_black_white(color)
+        
+        if self.board[point] != EMPTY:
             return False
-        # Special cases
-        if point == PASS:
-            self.ko_recapture = NO_POINT
-            self.current_player = opponent(color)
-            self.last2_move = self.last_move
-            self.last_move = point
-            return False
-
-        # General case: deal with captures, suicide, and next ko point
+            
         opp_color = opponent(color)
         in_enemy_eye = self._is_surrounded(point, opp_color)
         self.board[point] = color
-        single_captures = []
         neighbors = self._neighbors(point)
+        
+        #check for capturing
         for nb in neighbors:
             if self.board[nb] == opp_color:
-                single_capture = self._detect_and_process_capture(nb)
-                if single_capture != NO_POINT:
-                    self.board[point] = EMPTY #Capture is illegal
-                    return "capture"
-                    single_captures.append(single_capture)
+                captured = self._detect_and_process_capture(nb)
+                if captured:
+                #undo capturing move
+                    self.board[point] = EMPTY
+                    return False
+                    
+                    
+        #check for suicide
         block = self._block_of(point)
-        if not self._has_liberty(block):  # undo suicide move
+        if not self._has_liberty(block):  
+            # undo suicide move
             self.board[point] = EMPTY
-            return "suicide"
-        self.ko_recapture = NO_POINT
-        if in_enemy_eye and len(single_captures) == 1:
-            self.ko_recapture = single_captures[0]
+            return False
+        
         self.current_player = opponent(color)
-        self.last2_move = self.last_move
-        self.last_move = point
         return True
 
     def neighbors_of_color(self, point: GO_POINT, color: GO_COLOR) -> List:
@@ -292,8 +276,4 @@ class GoBoard(object):
         Only include moves on the board (not NO_POINT, not PASS).
         """
         board_moves: List[GO_POINT] = []
-        if self.last_move != NO_POINT and self.last_move != PASS:
-            board_moves.append(self.last_move)
-        if self.last2_move != NO_POINT and self.last2_move != PASS:
-            board_moves.append(self.last2_move)
         return board_moves

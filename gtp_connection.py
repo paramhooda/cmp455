@@ -4,23 +4,25 @@ Module for playing games of Go using GoTextProtocol
 
 Cmput 455 sample code
 Written by Cmput 455 TA and Martin Mueller.
-Parts of this code were originally based on the gtp module 
-in the Deep-Go project by Isaac Henrion and Amos Storkey 
+Parts of this code were originally based on the gtp module
+in the Deep-Go project by Isaac Henrion and Amos Storkey
 at the University of Edinburgh.
 """
+import time
 import traceback
+from xmlrpc.client import boolean
 import numpy as np
 import re
 from sys import stdin, stdout, stderr
 from typing import Any, Callable, Dict, List, Tuple
 
 from board_base import (
+    is_black_white,
     BLACK,
     WHITE,
     EMPTY,
     BORDER,
     GO_COLOR, GO_POINT,
-    PASS,
     MAXSIZE,
     coord_to_point,
     opponent
@@ -38,7 +40,7 @@ class GtpConnection:
         ----------
         go_engine:
             a program that can reply to a set of GTP commandsbelow
-        board: 
+        board:
             Represents the current board state.
         """
         self._debug_mode: bool = debug_mode
@@ -60,7 +62,10 @@ class GtpConnection:
             "legal_moves": self.legal_moves_cmd,
             "gogui-rules_legal_moves": self.gogui_rules_legal_moves_cmd,
             "gogui-rules_final_result": self.gogui_rules_final_result_cmd,
+            "solve": self.solve_cmd,
+            "timelimit": self.timelimit #add function
         }
+        self.timeLimit = 1
 
         # argmap is used for argument checking
         # values: (required number of arguments,
@@ -72,6 +77,7 @@ class GtpConnection:
             "genmove": (1, "Usage: genmove {w,b}"),
             "play": (2, "Usage: play {b,w} MOVE"),
             "legal_moves": (1, "Usage: legal_moves {w,b}"),
+            "timelimit":(1,"Usage timelimit INT")
         }
 
     def write(self, data: str) -> None:
@@ -82,7 +88,7 @@ class GtpConnection:
 
     def start_connection(self) -> None:
         """
-        Start a GTP connection. 
+        Start a GTP connection.
         This function continuously monitors standard input for commands.
         """
         line = stdin.readline()
@@ -109,6 +115,15 @@ class GtpConnection:
         args: List[str] = elements[1:]
         if self.has_arg_error(command_name, len(args)):
             return
+        # if command_name=='timelimit':
+        #     try:
+        #         print(args)
+        #         self.timelimit(args[0],args)
+        #         return
+        #     except Exception as e:
+        #         self.debug_msg("Error executing command {}\n".format(str(e)))
+        #         self.debug_msg("Stack Trace:\n{}\n".format(traceback.format_exc()))
+        #         raise e
         if command_name in self.commands:
             try:
                 self.commands[command_name](args)
@@ -207,7 +222,9 @@ class GtpConnection:
     def list_commands_cmd(self, args: List[str]) -> None:
         """ list all supported GTP commands """
         self.respond(" ".join(list(self.commands.keys())))
-
+        
+        
+        
     def legal_moves_cmd(self, args: List[str]) -> None:
         """
         List legal moves for color args[0] in {'b','w'}
@@ -221,19 +238,24 @@ class GtpConnection:
             gtp_moves.append(format_point(coords))
         sorted_moves = " ".join(sorted(gtp_moves))
         self.respond(sorted_moves)
+        
+        
+        
+    """
+    ==========================================================================
+    Assignment 2 - game-specific commands start here
+    ==========================================================================
+    """
+    """
+    ==========================================================================
+    Assignment 2 - commands we already implemented for you
+    ==========================================================================
+    """
+        
+        
 
-    """
-    ==========================================================================
-    Assignment 1 - game-specific commands start here
-    ==========================================================================
-    """
-    """
-    ==========================================================================
-    Assignment 1 - commands we already implemented for you
-    ==========================================================================
-    """
     def gogui_analyze_cmd(self, args):
-        """ We already implemented this function for Assignment 1 """
+        """ We already implemented this function for Assignment 2 """
         self.respond("pstring/Legal Moves For ToPlay/gogui-rules_legal_moves\n"
                      "pstring/Side to Play/gogui-rules_side_to_move\n"
                      "pstring/Final Result/gogui-rules_final_result\n"
@@ -243,20 +265,20 @@ class GtpConnection:
                      )
 
     def gogui_rules_game_id_cmd(self, args):
-        """ We already implemented this function for Assignment 1 """
+        """ We already implemented this function for Assignment 2 """
         self.respond("NoGo")
 
     def gogui_rules_board_size_cmd(self, args):
-        """ We already implemented this function for Assignment 1 """
+        """ We already implemented this function for Assignment 2 """
         self.respond(str(self.board.size))
 
     def gogui_rules_side_to_move_cmd(self, args):
-        """ We already implemented this function for Assignment 1 """
+        """ We already implemented this function for Assignment 2 """
         color = "black" if self.board.current_player == BLACK else "white"
         self.respond(color)
 
     def gogui_rules_board_cmd(self, args):
-        """ We already implemented this function for Assignment 1 """
+        """ We already implemented this function for Assignment 2 """
         size = self.board.size
         str = ''
         for row in range(size-1, -1, -1):
@@ -274,84 +296,60 @@ class GtpConnection:
                     assert False
             str += '\n'
         self.respond(str)
+        
+        
+    
+    def gogui_rules_legal_moves_cmd(self, args):
+        # get all the legal moves
+        legal_moves = GoBoardUtil.generate_legal_moves(self.board, self.board.current_player)
+        coords = [point_to_coord(move, self.board.size) for move in legal_moves]
+        # convert to point strings
+        point_strs  = [ chr(ord('a') + col - 1) + str(row) for row, col in coords]
+        point_strs.sort()
+        point_strs = ' '.join(point_strs).upper()
+        self.respond(point_strs)
+        return
+        
+
 
     """
     ==========================================================================
-    Assignment 1 - game-specific commands you have to implement or modify
+    Assignment 2 - game-specific commands you have to implement or modify
     ==========================================================================
     """
     def gogui_rules_final_result_cmd(self, args):
-        """ Implement this function for Assignment 1 """
-        #If all moves are illegal, the game is over
-        #If game is not over, return unknown. Otherwise, it should show who wins (white/black)
-        if self.board.current_player==BLACK:
-            color :GO_COLOR = color_to_int('b')
+        """ Implement this method correctly """
+        legal_moves = GoBoardUtil.generate_legal_moves(self.board, self.board.current_player)
+        if len(legal_moves) > 0:
+            self.respond('unknown')
+        elif self.board.current_player == BLACK:
+            self.respond('WHITE') #Edited so far
         else:
-            color :GO_COLOR = color_to_int('w')
-        moves = GoBoardUtil.generate_legal_moves(self.board, color)
-        if len(moves)>0:
-            self.respond("unknown")
-        else:
-            if self.board.current_player==BLACK:
-                self.respond("white")
-            else:
-                self.respond("black")
-
-    def gogui_rules_legal_moves_cmd(self, args):
-        """ Implement this function for Assignment 1 """
-        #Code taken from gtp_connection of go0and1. Unedited -Ivan
-        if self.board.current_player==BLACK:
-            color : GO_COLOR = color_to_int('w')
-        else:
-            color : GO_COLOR = color_to_int('b')
-
-
-        moves: List[GO_POINT] = GoBoardUtil.generate_legal_moves(self.board, color) #This should in theory work for the NoGo rules because of the adjustments I made to board.py - Jake
-        gtp_moves: List[str] = []
-        for move in moves:
-            coords: Tuple[int, int] = point_to_coord(move, self.board.size)
-            gtp_moves.append(format_point(coords))
-        sorted_moves = " ".join(sorted(gtp_moves))
-        self.respond(sorted_moves)
-        #self.respond() original code, commented out
-        return
+            self.respond('BLACK')
+            
 
     def play_cmd(self, args: List[str]) -> None:
         """
         play a move args[1] for given color args[0] in {'b','w'}
         """
+        # change this method to use your solver
         try:
             board_color = args[0].lower()
             board_move = args[1]
             color = color_to_int(board_color)
             
-            #Shouldn't the argument not be allowed to be pass? So I just have it report it as illegal move instead - Jake
-            if args[1].lower() == "pass":
-                """
-                #Original code
-                self.board.play_move(PASS, color)
-                self.board.current_player = opponent(color)
-                self.respond()
-                return
-                """                
-                self.respond('illegal move: "{} {}" wrong coordinate'.format(board_color,board_move))
-                return            
-            
             coord = move_to_coord(args[1], self.board.size)
-            move = coord_to_point(coord[0], coord[1], self.board.size)
-            if color != self.board.current_player:
-                self.respond('illegal move: {} wrong color'.format(board_color, board_move))
+            if coord:
+                move = coord_to_point(coord[0], coord[1], self.board.size)
+            else:
+                self.error(
+                    "Error executing move {} converted from {}".format(move, args[1])
+                )
                 return
-            move = self.board.play_move(move, color)
             
-            if move=="capture":
-                self.respond('illegal move: "{} {}" capture'.format(board_color, board_move))
-                return
-            elif move=="suicide":
-                self.respond('illegal move: "{} {}" suicide'.format(board_color, board_move))
-                return
-            elif move==False:
-                self.respond('illegal move: "{} {}" occupied'.format(board_color, board_move))
+            success = self.board.play_move(move, color)
+            if not success:
+                self.respond('illegal move')
                 return
             else:
                 self.debug_msg(
@@ -360,50 +358,111 @@ class GtpConnection:
             self.respond()
         except Exception as e:
             self.respond("Error: {}".format(str(e)))
+            
+    
 
     def genmove_cmd(self, args: List[str]) -> None:
         """ generate a move for color args[0] in {'b','w'} """
+        # change this method to use your solver
         board_color = args[0].lower()
         color = color_to_int(board_color)
         move = self.go_engine.get_move(self.board, color)
+        if move is None:
+            self.respond('unknown')
+            return
+            
         move_coord = point_to_coord(move, self.board.size)
         move_as_string = format_point(move_coord)
         if self.board.is_legal(move, color):
             self.board.play_move(move, color)
             self.respond(move_as_string)
         else:
-            self.respond("resign")
+            self.respond("Illegal move: {}".format(move_as_string))
+            
+            
+    def solve_cmd(self, args: List[str]) -> None:
+        # remove this respond and implement this method
+        start_time=time.time()
+        while(time.time()-start_time<self.timeLimit):
+            current_player =self.board.current_player
+            isWin = self.boolean_negamax(self.board, current_player)
+            if isWin:
+                if self.board.current_player==BLACK:
+                    self.respond("b")
+                else:
+                    self.respond("w")
+            else:
+                if self.board.current_player==BLACK:
+                    self.respond("w")
+                else:
+                    self.respond("b")
+        self.respond("unknown")
+            #get current player
+            #generate best move
+            #play move
+            #check if game is over
+            #switch to next plauer
+        
+    def timelimit(self,args):
+        try:
+            time = int(args[0])
+            if time>=1 and time<=100:
+                return time
+            else:
+                return self.timeLimit
+        except:
+            return self.timeLimit
+    def boolean_negamax(self, current_board, current_player):
+        board = current_board.copy()
+
+        res = board.inTT(self.board)
+
+        if res != False:
+            return res 
+
+        else:
+            for move in GoBoardUtil.generate_legal_moves(board, current_player):
+                board.play_move(move, current_player)
+                score = not self.boolean_negamax(board, current_player)
+                self.board.addToTT(board, score)
+                if score:
+                    board.last_move_color = current_player
+                    board.last_move = move
+                    return True
+            
+
+            return False
+                
+                
+
+            
+    
+
+        
+        
 
     """
     ==========================================================================
-    Assignment 1 - game-specific commands end here
+    Assignment 2 - game-specific commands end here
     ==========================================================================
     """
 
 def point_to_coord(point: GO_POINT, boardsize: int) -> Tuple[int, int]:
     """
-    Transform point given as board array index 
+    Transform point given as board array index
     to (row, col) coordinate representation.
-    Special case: PASS is transformed to (PASS,PASS)
     """
-    if point == PASS:
-        return (PASS, PASS)
-    else:
-        NS = boardsize + 1
-        return divmod(point, NS)
+    NS = boardsize + 1
+    return divmod(point, NS)
 
 
 def format_point(move: Tuple[int, int]) -> str:
     """
-    Return move coordinates as a string such as 'A1', or 'PASS'.
+    Return move coordinates as a string such as 'A1'
     """
     assert MAXSIZE <= 25
     column_letters = "ABCDEFGHJKLMNOPQRSTUVWXYZ"
-    if move[0] == PASS:
-        return "PASS"
     row, col = move
-    if not 0 <= row < MAXSIZE or not 0 <= col < MAXSIZE:
-        raise ValueError
     return column_letters[col - 1] + str(row)
 
 
@@ -411,28 +470,17 @@ def move_to_coord(point_str: str, board_size: int) -> Tuple[int, int]:
     """
     Convert a string point_str representing a point, as specified by GTP,
     to a pair of coordinates (row, col) in range 1 .. board_size.
-    Raises ValueError if point_str is invalid
+    
     """
-    if not 2 <= board_size <= MAXSIZE:
-        raise ValueError("board_size out of range")
     s = point_str.lower()
-    if s == "pass":
-        return (PASS, PASS)
-    try:
-        col_c = s[0]
-        if (not "a" <= col_c <= "z") or col_c == "i":
-            raise ValueError
-        col = ord(col_c) - ord("a")
-        if col_c < "i":
-            col += 1
-        row = int(s[1:])
-        if row < 1:
-            raise ValueError
-    except (IndexError, ValueError):
-        raise ValueError("invalid point: '{}'".format(s))
-    if not (col <= board_size and row <= board_size):
-        raise ValueError("point off board: '{}'".format(s))
+    col_c = s[0]
+    col = ord(col_c) - ord("a")
+    if col_c < "i":
+        col += 1
+    row = int(s[1:])
+        
     return row, col
+
 
 
 def color_to_int(c: str) -> int:
